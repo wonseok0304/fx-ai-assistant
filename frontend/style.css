@@ -77,4 +77,9 @@ canvas { width: 100%; display: block; }
   .layout { grid-template-columns: 1fr; padding: 0 16px 32px; }
   .topbar { padding: 12px 16px; } .banner { margin: 0 16px 12px; }
   .chat { height: 460px; } .msg { max-width: 92%; }
+  th, td { padding: 7px 4px; font-size: .85rem; }
+  td.act button { padding: 4px 7px; }
+  td.act { white-space: nowrap; }
+  td.memo { white-space: normal; min-width: 0; word-break: break-word; }
+  .data-form .grow { min-width: 100%; }
 }

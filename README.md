@@ -123,7 +123,7 @@ data/usd_krw.csv         # 샘플 데이터
 | GET | `/api/conversations` | 목록 (**messages 미포함**, `message_count` 포함) |
 | GET | `/api/conversations/{id}` | 전체 messages 조회 (불러오기, 방식 A) |
 | DELETE | `/api/conversations/{id}` | 삭제 |
-| POST | `/api/chat` | `{message, conversation_id?}` → `{reply, conversation_id, tools_used}` |
+| POST | `/api/chat` | `{message, conversation_id?}` → `{reply, conversation_id, tools_used, saved}` |
 
 입력 검증(Pydantic): `date`는 유효한 YYYY-MM-DD, `value`는 0 초과 숫자, `memo`는 200자 이하, 채팅 메시지는 1~1000자. 잘못된 입력은 422, 없는 id는 404, AI 호출 실패는 502로 응답합니다.
 
@@ -208,6 +208,135 @@ Claude Desktop `claude_desktop_config.json`:
   "command": "python", "args": ["<절대경로>/backend/mcp_server/server.py"],
   "env": { "API_BASE_URL": "https://<your-api>.onrender.com" } } } }
 ```
+
+## Firestore 저장 구현과 실행 증거
+
+### 구현 (`backend/app/store.py`)
+
+서비스 계정 키는 환경변수(`FIREBASE_SERVICE_ACCOUNT_JSON` 또는 `_PATH`)에서만 읽고, `firebase_admin`으로 초기화한 뒤 `firestore.client()`로 `data`·`conversations` 컬렉션을 다룹니다.
+
+```python
+class FirestoreStore:
+    def __init__(self):
+        if not firebase_admin._apps:
+            if config.FIREBASE_SERVICE_ACCOUNT_JSON:
+                cred = credentials.Certificate(json.loads(config.FIREBASE_SERVICE_ACCOUNT_JSON))
+            elif config.FIREBASE_SERVICE_ACCOUNT_PATH:
+                cred = credentials.Certificate(config.FIREBASE_SERVICE_ACCOUNT_PATH)
+            else:
+                raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON 또는 _PATH 환경변수가 필요합니다.")
+            firebase_admin.initialize_app(cred)
+        self.db = firestore.client()
+
+    def add(self, col, data):           # Create
+        _, ref = self.db.collection(col).add(data); return ref.id
+    def list(self, col):                # Read (목록)
+        return [{"id": d.id, **d.to_dict()} for d in self.db.collection(col).stream()]
+    def get(self, col, doc_id):         # Read (단건)
+    def update(self, col, doc_id, data) # Update — 없는 id면 False → 라우터가 404
+    def delete(self, col, doc_id)       # Delete — 없는 id면 False → 라우터가 404
+```
+
+### 실행 증거 (배포 서버 `https://fx-ai-assistant.onrender.com` 에서 실제로 받은 응답)
+
+- `GET /health` → `200 {"status":"ok"}`, `GET /docs` → `200` (Swagger UI)
+- `GET /api/data` → `200`, **193건** (Firestore `data` 컬렉션). 마지막 문서:
+
+```json
+{"id": "NlvSMrKJptFW1Q2wagiD", "date": "2025-10-01", "value": 1405.25, "memo": ""}
+```
+
+- 데이터 추가(POST) 후 `총 194건`으로 늘고, 삭제(DELETE) 후 다시 `193건`으로 돌아오는 것을 화면과 API로 확인했습니다 (아래 스크린샷 2). 문서 ID(`NlvSMrKJptFW1Q2wagiD`)는 Firestore가 자동 생성한 값이며, 서버를 재배포·재시작해도 데이터가 유지되므로 메모리가 아닌 Firestore에 저장된다는 증거입니다.
+- 대화 저장/불러오기: `GET /api/conversations` (목록, messages 미포함)
+
+```json
+[{"id": "qV5CimWCmq6gCkaVXgwN", "title": "최근 환율 추세 어때?", "message_count": 2,
+  "created_at": "2026-10-23T03:31:50.054127+00:00", "updated_at": "2026-10-23T03:31:50.054127+00:00"}]
+```
+
+`GET /api/conversations/Hrnm4BqR724Sjx8Gw1K1` (전체 messages, 일부 발췌)
+
+```json
+{"id": "Hrnm4BqR724Sjx8Gw1K1", "title": "가장 환율이 높았던 날은 언제야?", "message_count": 4,
+ "created_at": "2026-10-23T02:58:34.457833+00:00", "updated_at": "2026-10-23T02:58:38.950599+00:00",
+ "messages": [
+   {"role": "user", "content": "가장 환율이 높았던 날은 언제야?"},
+   {"role": "assistant", "content": "제공된 데이터에 따르면, 환율이 가장 높았던 날은 2025년 4월 8일이며, 이때 환율은 1478.35원이었습니다."}]}
+```
+
+### 컬렉션 스키마와 조회 패턴
+
+| 컬렉션 | 필드 (타입) | 조회 패턴 |
+|---|---|---|
+| `data` | `date` (string, `YYYY-MM-DD`), `value` (number), `memo` (string ≤200자) | 전체 조회 후 `date` 정렬. 날짜 문자열은 사전순 = 시간순 |
+| `conversations` | `title` (string), `messages` (array of `{role, content}`), `created_at`·`updated_at` (ISO 8601 string) | 전체 조회 후 `updated_at` 내림차순 |
+
+현재 데이터(193건)는 전체를 읽어 서버에서 정렬해도 충분히 빠르고 별도 인덱스가 필요 없습니다. 데이터가 수천 건 이상으로 늘면 `orderBy("date")`와 `limit`을 Firestore 쿼리로 내리고(단일 필드 인덱스는 자동 생성), 기간 필터를 추가할 때는 `date` 범위 쿼리를 쓰면 됩니다. 대화의 `messages`를 배열로 한 문서에 두었기 때문에 한 번에 읽어 불러오기가 단순하지만, 문서 크기 한도(1MiB)를 고려해 입력을 200개 메시지·메시지당 4000자로 제한했습니다.
+
+## 샘플 요청/응답과 에러 형식
+
+`POST /api/chat` — 요약 주입 후 생성된 답변 (요약에 없는 값이 필요하면 도구를 호출하고 `tools_used`에 기록)
+
+```json
+// 요청
+{"message": "2025-09-30 근처 환율 값도 알려줘", "conversation_id": "Hrnm4BqR724Sjx8Gw1K1"}
+// 응답
+{"reply": "2025년 9월 30일 환율은 1403.67원이었으며, 그 근처 환율은 ... 2025년 10월 1일: 1405.25원 ...",
+ "conversation_id": "Hrnm4BqR724Sjx8Gw1K1",
+ "tools_used": [{"name": "get_recent_data", "arguments": {"limit": 7}}],
+ "saved": true}
+```
+
+| 상황 | 상태 | 응답 예시 |
+|---|---|---|
+| 입력 검증 실패 | 422 | `{"detail":[{"loc":["body","value"],"msg":"Input should be greater than 0", ...}]}` |
+| 없는 id 수정/삭제/조회 | 404 | `{"detail":"데이터를 찾을 수 없습니다."}` |
+| 키 미설정 | 503 | `{"detail":"OPENAI_API_KEY가 설정되지 않았습니다."}` |
+| LLM 호출 실패(한도 초과 등) | 502 | `{"detail":"AI 호출 실패: RateLimitError"}` |
+| 그 외 예외 | 500 | `{"detail":"서버 내부 오류가 발생했습니다."}` (내부 정보는 노출하지 않음) |
+
+**대화 자동 저장 실패 시**: 이미 생성된 답변은 버리지 않고 그대로 돌려주되 `"saved": false`, `conversation_id`는 그대로(신규 대화면 `null`)로 응답하고 서버 로그에 예외를 남깁니다. 프론트는 "답변은 생성됐지만 대화 저장에 실패했습니다" 안내를 띄웁니다. 사용자가 같은 질문을 다시 보내 저장을 재시도할 수 있습니다.
+
+## 구조도와 프론트 상태 흐름
+
+```
+브라우저(Vanilla JS) ──HTTPS+CORS──▶ main.py ─▶ routers/{data, conversations, chat}   (HTTP 입출력, 상태코드)
+                                                        │ schemas.py (Pydantic 검증)
+                                                        ▼
+                                              services/{data, summary, conversation, chat}  (로직)
+                                                        │                    │
+                                                        ▼                    ▼
+                                                  store.py ──▶ Firestore   OpenAI 호환 API(GPT/Gemini)
+의존 방향: routers → services → store (역방향 import 없음). chat_service는 summary/data/conversation 서비스를 재사용
+```
+
+프론트 상태(`frontend/app.js`의 `state`)의 주요 흐름:
+
+```
+메시지 전송 : 입력 → state.sending=true, 로딩 말풍선 → POST /api/chat → 답변 표시 → state.conversationId 갱신 → 대화 목록 재조회
+대화 열기   : 목록 클릭 → GET /api/conversations/{id} → 채팅창 교체 → state.conversationId=id → 목록 강조
+데이터 변경 : 추가/수정/삭제 → POST·PUT·DELETE → refreshAll() = 요약 재조회 + 데이터 재조회 → 표·그래프 갱신
+```
+
+## 운영 · 보안 메모
+
+- **환경변수 설정 절차**
+  - Render: 서비스 → **Environment → Add Environment Variable** 에 `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `FIREBASE_SERVICE_ACCOUNT_JSON`(JSON 전체), `ALLOWED_ORIGINS` 입력 → Save 시 자동 재배포.
+  - Vercel: 프로젝트 → **Settings → Environment Variables** 에 `API_BASE_URL`(예: `https://fx-ai-assistant.onrender.com`, 끝 `/` 없이) 입력 → Redeploy. 값은 빌드 때 `build.js`가 `config.js`로 주입합니다.
+- **CORS 샘플 값**: `ALLOWED_ORIGINS=https://fx-ai-assistant-frontend.vercel.app,http://localhost:5500` (쉼표로 구분, 공백·끝 `/` 없음). 프론트 도메인이 바뀌면 이 값에 추가해야 합니다. `*`는 쓰지 않습니다.
+- **콜드스타트 대응**: 현재는 응답이 3초 넘게 없으면 "서버를 깨우는 중" 배너를 표시합니다. 추가로 [cron-job.org](https://cron-job.org)·UptimeRobot 같은 무료 서비스로 `GET /health`를 14분 간격으로 호출하면 슬립을 막을 수 있습니다(장점: 첫 요청 지연 제거 / 단점: 무료 인스턴스 월 가용 시간 소모, 서비스 의존). 평가·시연 직전에 한 번 접속해 깨워 두는 것도 방법입니다.
+- **컨텍스트 주입의 한계와 대안**: 요약은 몇 줄(약 200토큰)이라 토큰 부담이 작고, 대화 이력은 최근 10개 메시지만 보내며 `max_tokens=500`으로 출력을 제한합니다. 요약만으로 부족한 질문은 도구 호출(`get_recent_data`, 최대 60건)로 보충합니다. 데이터가 매우 많아지면 월별 통계(`/api/data/statistics`)를 요약에 함께 넣는 방식으로 확장할 수 있습니다. 요약이 오래된 값을 쓰는 문제는 매 요청마다 새로 계산해 방지합니다.
+- **요약 계산 비용/캐싱**: 요약은 O(n) 단일 패스 통계라 193건 기준 수 ms입니다. 데이터가 수만 건이 되면 쓰기(POST/PUT/DELETE) 시점에 요약을 `summary` 문서로 갱신해 두고 읽기만 하는 방식(또는 짧은 TTL 메모리 캐시)으로 바꾸는 것을 권장합니다.
+- **요약 기준 변경 지점**: 추세 임계값은 `summary_service.py`의 `FLAT_THRESHOLD`(±0.5%), 비교 구간은 `build_summary`의 `w`(최근 30건 vs 직전 30건). 기간 지정 요약이 필요하면 `GET /api/data/summary?start=&end=` 파라미터를 라우터에 추가하고 `data_service.list_data`에서 날짜로 필터링하면 됩니다.
+- **악의적 입력 처리**: 프론트는 사용자·AI 텍스트를 `innerHTML`이 아닌 `textContent`로만 그려 스크립트/HTML이 실행되지 않습니다(XSS 방어). 서버는 Pydantic으로 길이·범위·형식을 제한하고, Firestore는 파라미터화된 SDK 호출이라 인젝션 위험이 없습니다. 비밀 키는 응답·로그에 노출하지 않습니다.
+
+## 모바일 화면
+
+375px 폭(휴대폰)에서 가로 스크롤 없이 한 열로 재배치됩니다.
+
+![모바일 채팅 화면](docs/screenshot-mobile-chat.jpg)
+
+![모바일 데이터 관리 화면](docs/screenshot-mobile-data.jpg)
 
 ## 제출 스크린샷
 

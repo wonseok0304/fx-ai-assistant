@@ -1,5 +1,6 @@
 """AI 챗봇: 요약 컨텍스트 주입 + Function Calling(도구 호출) + 대화 자동 저장."""
 import json
+import logging
 
 from fastapi import HTTPException
 from openai import OpenAI, OpenAIError
@@ -7,6 +8,8 @@ from openai import OpenAI, OpenAIError
 from app import config
 from app.services import conversation_service as conv_svc
 from app.services import data_service, summary_service
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_TEMPLATE = """당신은 USD/KRW 환율 데이터 분석 비서입니다.
 
@@ -97,9 +100,15 @@ def chat(message: str, conversation_id: str | None) -> dict:
     reply = (msg.content or "").strip() or "답변을 생성하지 못했습니다."
 
     # 자동 저장
+    # 저장에 실패해도 이미 생성된 답변은 사용자에게 돌려주고, saved=False로 알린다.
     new = [{"role": "user", "content": message}, {"role": "assistant", "content": reply}]
-    if conversation_id:
-        conv_svc.append_messages(conversation_id, new)
-    else:
-        conversation_id = conv_svc.create_conversation("", new)["id"]
-    return {"reply": reply, "conversation_id": conversation_id, "tools_used": tools_used}
+    saved = True
+    try:
+        if conversation_id:
+            conv_svc.append_messages(conversation_id, new)
+        else:
+            conversation_id = conv_svc.create_conversation("", new)["id"]
+    except Exception:
+        logger.exception("대화 자동 저장 실패")
+        saved = False
+    return {"reply": reply, "conversation_id": conversation_id, "tools_used": tools_used, "saved": saved}

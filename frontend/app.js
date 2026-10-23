@@ -113,7 +113,8 @@ $("chatForm").onsubmit = async (ev) => {
     loading.remove();
     const tools = r.tools_used.length ? "🔧 " + r.tools_used.map((t) => t.name).join(", ") : "";
     addMessage("assistant", r.reply, tools);
-    state.conversationId = r.conversation_id;
+    if (r.conversation_id) state.conversationId = r.conversation_id;
+    if (!r.saved) toast("⚠️ 답변은 생성됐지만 대화 저장에 실패했습니다.");
     loadConversations();
   } catch (e) {
     loading.remove();

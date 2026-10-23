@@ -58,5 +58,6 @@ class ChatIn(BaseModel):
 
 class ChatOut(BaseModel):
     reply: str
-    conversation_id: str
+    conversation_id: Optional[str] = None
     tools_used: list[dict] = []
+    saved: bool = True  # False면 답변은 생성됐으나 대화 저장에 실패한 것
