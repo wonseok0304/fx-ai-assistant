@@ -160,7 +160,10 @@ python -m http.server 5500          # http://localhost:5500
 | `OPENAI_API_KEY` | OpenAI API 키 |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | 서비스 계정 JSON **전체 내용**(한 줄). 로컬에서는 `FIREBASE_SERVICE_ACCOUNT_PATH`(파일 경로)도 가능 |
 | `ALLOWED_ORIGINS` | CORS 허용 도메인(쉼표 구분). 예: `https://<your-app>.vercel.app` |
+| `OPENAI_BASE_URL` | (선택) OpenAI 호환 API 주소. 비우면 OpenAI 공식 API |
 | `OPENAI_MODEL` / `OPENAI_MAX_TOKENS` | (선택) 기본 `gpt-4o-mini` / `500` — 비용 제어 |
+
+> **LLM 제공자 안내**: 백엔드는 `openai` SDK(Chat Completions + tool calling)로 구현되어 있습니다. 개발·제출 환경에서는 **과금 없이 테스트하기 위해 Google Gemini의 OpenAI 호환 엔드포인트**(`OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`, `OPENAI_MODEL=gemini-2.5-flash`)를 사용했습니다. OpenAI GPT로 바꾸려면 `OPENAI_BASE_URL`을 비우고 `OPENAI_API_KEY`에 OpenAI 키, `OPENAI_MODEL`에 `gpt-4o-mini`를 넣으면 코드 수정 없이 동작합니다.
 
 **프론트엔드 (Vercel)**
 

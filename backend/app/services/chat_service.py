@@ -71,7 +71,7 @@ def chat(message: str, conversation_id: str | None) -> dict:
     system = SYSTEM_TEMPLATE.format(summary=summary_service.summary_to_prompt_text(summary))
     messages = [{"role": "system", "content": system}, *history, {"role": "user", "content": message}]
 
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=45)
+    client = OpenAI(api_key=config.OPENAI_API_KEY, base_url=config.OPENAI_BASE_URL, timeout=45)
     tools_used = []
     try:
         for _ in range(3):  # 도구 호출 루프 (최대 3회)

@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# 비워 두면 OpenAI 기본 주소. Groq/Gemini 같은 OpenAI 호환 API를 쓰려면 주소를 지정한다.
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "") or None
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "500"))
 
