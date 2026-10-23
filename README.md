@@ -61,13 +61,13 @@
 - **Firestore CRUD**: `data`(date, value, memo), `conversations`(title, messages[], created_at, updated_at) 두 컬렉션. 문서 ID를 `id`로 노출해 수정/삭제에 사용합니다.
 - **컨텍스트 주입**: GPT는 우리 DB를 모르므로, 매 요청마다 최신 요약을 계산해 시스템 프롬프트에 넣습니다. 전체 데이터(193건)를 넣는 것보다 토큰이 적고, 답변이 실제 수치에 근거하며 데이터가 바뀌면 답변도 바뀝니다.
 
-## 배포 URL (배포 후 채워 넣기)
+## 배포 URL
 
 | 구분 | URL |
 |---|---|
-| 프론트엔드 (Vercel) | `https://<your-app>.vercel.app` |
-| 백엔드 API (Render) | `https://<your-api>.onrender.com` |
-| Swagger UI | `https://<your-api>.onrender.com/docs` |
+| 프론트엔드 (Vercel) | https://fx-ai-assistant-frontend.vercel.app |
+| 백엔드 API (Render) | https://fx-ai-assistant.onrender.com |
+| Swagger UI | https://fx-ai-assistant.onrender.com/docs |
 
 > ⏳ Render 무료 티어는 15분간 요청이 없으면 슬립합니다. 첫 요청은 30~60초 걸릴 수 있으며, 프론트가 3초 이상 응답이 없으면 "서버를 깨우는 중" 안내를 표시합니다.
 
@@ -159,7 +159,7 @@ python -m http.server 5500          # http://localhost:5500
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API 키 |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | 서비스 계정 JSON **전체 내용**(한 줄). 로컬에서는 `FIREBASE_SERVICE_ACCOUNT_PATH`(파일 경로)도 가능 |
-| `ALLOWED_ORIGINS` | CORS 허용 도메인(쉼표 구분). 예: `https://<your-app>.vercel.app` |
+| `ALLOWED_ORIGINS` | CORS 허용 도메인(쉼표 구분). 예: https://fx-ai-assistant-frontend.vercel.app |
 | `OPENAI_BASE_URL` | (선택) OpenAI 호환 API 주소. 비우면 OpenAI 공식 API |
 | `OPENAI_MODEL` / `OPENAI_MAX_TOKENS` | (선택) 기본 `gpt-4o-mini` / `500` — 비용 제어 |
 
@@ -209,8 +209,16 @@ Claude Desktop `claude_desktop_config.json`:
   "env": { "API_BASE_URL": "https://<your-api>.onrender.com" } } } }
 ```
 
-## 제출 스크린샷 (배포 후 추가)
+## 제출 스크린샷
 
-1. 데이터 요약이 보이는 채팅 화면 (질문+답변 포함) — `docs/screenshot-chat.png`
-2. 데이터 관리 화면 (CRUD 동작) — `docs/screenshot-data.png`
-3. 대화 기록 화면 (불러오기 동작) — `docs/screenshot-history.png`
+**1. 데이터 요약이 보이는 채팅 화면 (질문 + 답변)** — 상단 요약 카드의 수치를 근거로 답변합니다.
+
+![채팅 화면](docs/screenshot-chat.png)
+
+**2. 데이터 관리 화면 (CRUD 중 추가 동작)** — 새 데이터를 추가하자 목록 맨 위에 반영되고 총 건수가 193 → 194건으로 늘어난 모습입니다.
+
+![데이터 관리 화면](docs/screenshot-data.png)
+
+**3. 대화 기록 화면 (불러오기 동작)** — 이전 대화를 선택하면 저장된 메시지가 채팅창에 다시 표시됩니다 (선택된 항목 강조, 도구 호출로 조회한 값 포함).
+
+![대화 기록 화면](docs/screenshot-history.png)
